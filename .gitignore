@@ -1,0 +1,4 @@
+*.pyc
+.dir_overlay.*
+test_custom/
+test_base/
