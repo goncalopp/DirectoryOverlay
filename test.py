@@ -94,7 +94,7 @@ def test(direction):
             assert applied_files[fn]==base_files[fn]        #...or the base content if it does not
     
     added_files= set(applied_files.keys())-set(all_filenames)                   #there are no files that weren't in either BASE or CUSTOM...
-    assert all([ f.endswith(DirectoryMerger.BACKUP_EXT) for f in added_files ]) #...other than backup files
+    assert all([ f.endswith(DirectoryMerger.BACKUP_EXT) or f.endswith(DirectoryMerger.TAR_BACKUP_FILENAME) for f in added_files ]) #...other than backup files
     
     
     

@@ -3,6 +3,7 @@ BASE_DIR= "../base"
 CUSTOM_DIR="custom"
 DIRECTION= "tobase"                               #tobase or tocustom
 STATE_DIR="."
+BACKUP_TYPE="files"                               #files or tar
 
 
 #-----end of user editable variables. Only real developers from this point on please :)
@@ -27,8 +28,8 @@ USAGE=  ("Usage: \n"
         )
         
 
-from os import remove, listdir, mkdir
-from os.path import isdir, isfile, join, exists, normpath, abspath
+from os import remove, listdir, mkdir, getcwd, chdir
+from os.path import isdir, isfile, join, exists, normpath, abspath, relpath
 from shutil import copyfile, rmtree, move
 from functools import partial
 
@@ -42,6 +43,11 @@ logging.basicConfig(level=logging.INFO, format= '%(message)s')
 def file_inside_directory(f, dir):
     '''returns True iff the file is inside a directory OR any of its subdirectories'''
     return abspath(f).startswith(abspath(dir))
+
+def relativify_path(path, base):
+    '''similar to os.path.relpath, but makes sure path is inside base'''
+    assert file_inside_directory(path, base)
+    return relpath(path, base)
 
 class StateFile( object ):
     '''tracks state (CLEAN or APPLIED), using a file'''
@@ -95,11 +101,15 @@ class MergeHistory( object ):
 class DirectoryMerger( object ):
     '''Exposes operations to merge two directories, and to revert the changes, through the use of a MergeHistory'''
     BACKUP_EXT='.dir_overlay_bak'
+    TAR_BACKUP_FILENAME='.dir_overlay_bak.tar'
+    BACKUP_NONE, BACKUP_FILES, BACKUP_TAR= None, "files", "tar"
+    BACKUP_TYPES= (BACKUP_NONE, BACKUP_FILES, BACKUP_TAR)
     def __init__(self, from_dir, to_dir, backup, replace):
-        assert backup in (True, False)
+        assert backup in self.BACKUP_TYPES
         assert replace in (True, False)
         assert not (backup and not replace) #it doesn't make sense to backup and not replace...
-        self.from_dir, self.to_dir= from_dir, to_dir
+        self.from_dir, self.to_dir= map( abspath, (from_dir, to_dir) )
+        self.backup_dir= self.to_dir #the implementation needs some changes for this to be something else
         self.backup=    backup
         self.replace=   replace
     
@@ -107,12 +117,19 @@ class DirectoryMerger( object ):
         assert not f[-1] in ("/","\\")
         return f+self.BACKUP_EXT
     
+    def _backup_file( self, f ):
+        if self.backup:
+            relative_f= relativify_path(f, self.to_dir)
+            dest= join( self.backup_dir, self._backup_filename( relative_f ) )
+            move( f, dest )
+            self.backed_up.append(dest)
+    
     def _merge_file( self, from_file, to_file ):
         ex= exists(to_file)
         if ex and not isfile(to_file):
             raise Exception("File on origin has the same name as a non-file on destination: "+to_file)
-        if ex and self.backup:
-            move( to_file, self._backup_filename( to_file ) )
+        if ex:
+            self._backup_file( to_file )
         if self.replace or not ex:
             logging.debug("copying file:".ljust(27)+from_file)
             copyfile(from_file, to_file)
@@ -154,12 +171,36 @@ class DirectoryMerger( object ):
 
     def merge( self ):
         self.changes= MergeHistory()
+        self.backed_up= []
         self._merge_dir( self.from_dir, self.to_dir) 
+        if self.backup==self.BACKUP_TAR:
+            logging.debug("creating tar backup")
+            import tarfile
+            oldcwd= getcwd()
+            chdir( self.backup_dir )
+            tar = tarfile.open(self.TAR_BACKUP_FILENAME, "w")
+            for f in self.backed_up:
+                tar.add( relativify_path(f, self.backup_dir) )
+            tar.close()
+            for f in self.backed_up:
+                remove( relativify_path(f, self.backup_dir) )
+            chdir( oldcwd )
         return self.changes
 
     def remove_changes(self, changes):
         '''delete all files and dirs on the list, and restores backups if existent'''
         assert isinstance(changes, MergeHistory)
+        if self.backup==self.BACKUP_TAR and exists(join(self.backup_dir, self.TAR_BACKUP_FILENAME)):
+            logging.debug("extracting tar backup")
+            import tarfile
+            oldcwd= getcwd()
+            chdir( self.backup_dir )
+            tar = tarfile.open(self.TAR_BACKUP_FILENAME)
+            tar.extractall()
+            tar.close()
+            logging.debug("deleting tar backup")
+            remove(self.TAR_BACKUP_FILENAME)
+            chdir( oldcwd )
         for x in changes.changed:
             if isdir(x):
                 logging.debug("removing directory: ".ljust(20)+x)
@@ -188,7 +229,7 @@ class DirectoryOverlay( object ):
         from_dir= base_dir if direction==self.TOCUSTOM else custom_dir
         to_dir=   base_dir if direction==self.TOBASE else custom_dir
         replace=  direction==self.TOBASE
-        backup=   direction==self.TOBASE
+        backup=   BACKUP_TYPE if direction==self.TOBASE else DirectoryMerger.BACKUP_NONE
         self.statefile=     StateFile(join(state_dir, self.STATE_FILE))
         self.merger=        DirectoryMerger( from_dir, to_dir, backup, replace )
         self.state_dir=     state_dir
@@ -216,7 +257,7 @@ class DirectoryOverlay( object ):
         
     def apply(self, allow_repeated=False):
         if self.statefile.state==StateFile.APPLIED and allow_repeated:
-            self.merger.clean()
+            self.clean()
         self._apply()
 
         
