@@ -1,7 +1,7 @@
 #edit these variables to point to the correct paths
 BASE_DIR= "../base"
 CUSTOM_DIR="custom"
-DIRECTION= "TOBASE"                               #TOBASE or TOCUSTOM
+DIRECTION= "tobase"                               #tobase or tocustom
 STATE_DIR="."
 
 
@@ -222,7 +222,7 @@ class DirectoryOverlay( object ):
         
 #--This section has global-using and exit()ing functions,  and keeps external state------------------------------
 
-overlay= None #DirectoryOverlay( BASE_DIR, CUSTOM_DIR, STATE_DIR, DIRECTION )
+overlay= DirectoryOverlay( BASE_DIR, CUSTOM_DIR, STATE_DIR, DIRECTION )
     
 def clean():
     overlay.clean()
