@@ -1,8 +1,8 @@
 #edit these variables to point to the correct paths
-#BASE_DIR= "../base"
-#CUSTOM_DIR="custom"
-#DIRECTION= "TOBASE"                               #TOBASE or TOCUSTOM
-#STATE_DIR="."
+BASE_DIR= "../base"
+CUSTOM_DIR="custom"
+DIRECTION= "TOBASE"                               #TOBASE or TOCUSTOM
+STATE_DIR="."
 
 
 #-----end of user editable variables. Only real developers from this point on please :)
@@ -28,7 +28,7 @@ USAGE=  ("Usage: \n"
         
 
 from os import remove, listdir, mkdir
-from os.path import isdir, isfile, join, exists, normpath
+from os.path import isdir, isfile, join, exists, normpath, abspath
 from shutil import copyfile, rmtree, move
 from functools import partial
 
@@ -39,6 +39,9 @@ logging.basicConfig(level=logging.INFO, format= '%(message)s')
 
 #----------------This section has pure classes and functions-----------------------------------------------
 
+def file_inside_directory(f, dir):
+    '''returns True iff the file is inside a directory OR any of its subdirectories'''
+    return abspath(f).startswith(abspath(dir))
 
 class StateFile( object ):
     '''tracks state (CLEAN or APPLIED), using a file'''
@@ -111,7 +114,7 @@ class DirectoryMerger( object ):
         if ex and self.backup:
             move( to_file, self._backup_filename( to_file ) )
         if self.replace or not ex:
-            logging.debug("copying  file:".ljust(27)+from_file)
+            logging.debug("copying file:".ljust(27)+from_file)
             copyfile(from_file, to_file)
             if ex:
                 self.changes.change_file( to_file )
@@ -174,12 +177,14 @@ class DirectoryOverlay( object ):
     '''Uses a StateFile and a DirectoryMerger'''
     TOBASE, TOCUSTOM=   "tobase", "tocustom"
     DIRECTIONS=         (TOBASE, TOCUSTOM)
-    STATE_FILE=         ".base_merger.state"    #clean or applied state
-    CHANGES_FILE=       ".base_merger.list"      #list of files that were copied
+    STATE_FILE=         ".dir_overlay.state"    #clean or applied state
+    CHANGES_FILE=       ".dir_overlay.list"      #list of files that were copied
     class AlreadyApplied( Exception ):
         pass
     def __init__(self, base_dir, custom_dir, state_dir, direction):
         assert direction in self.DIRECTIONS
+        assert not file_inside_directory(state_dir, base_dir)   #state_dir is not inside (or the same) as base_dir
+        assert not file_inside_directory(state_dir, custom_dir) #state_dir is not inside (or the same) as base_dir
         from_dir= base_dir if direction==self.TOCUSTOM else custom_dir
         to_dir=   base_dir if direction==self.TOBASE else custom_dir
         replace=  direction==self.TOBASE
